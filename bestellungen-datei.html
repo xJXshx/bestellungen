@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bestellungen</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#1d2330;--muted:#6b7385;--line:#e2e5ec;--accent:#3b6cf6;--ok:#1f9d55;--warn:#c27c0e;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14171d;--card:#1d222b;--text:#eceff5;--muted:#9099ad;--line:#2d3340;--accent:#6c93ff;--ok:#4cc27d;--warn:#e0a23a}}
+:root[data-theme="dark"]{--bg:#14171d;--card:#1d222b;--text:#eceff5;--muted:#9099ad;--line:#2d3340;--accent:#6c93ff;--ok:#4cc27d;--warn:#e0a23a}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:760px;margin:0 auto;padding:24px 16px 48px}
+h1{margin:0 0 4px;font-size:28px}
+.sub{color:var(--muted);margin:0 0 20px;font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px}
+form.add{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+form.add .full{grid-column:1/-1}
+input,textarea{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+input[type=checkbox]{width:20px;height:20px;margin:2px 0 0;flex:none}
+button{padding:10px 16px;border:0;border-radius:8px;background:var(--accent);color:#fff;font:inherit;cursor:pointer}
+button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line);padding:6px 10px;font-size:13px}
+.row{display:flex;gap:12px;align-items:flex-start}
+.grow{flex:1;min-width:0}
+.title{font-weight:600}
+.meta{color:var(--muted);font-size:14px}
+.badge{font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);white-space:nowrap}
+.offen{color:var(--warn)}.erledigt{color:var(--ok)}
+.actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.empty{color:var(--muted);text-align:center;padding:24px 0}
+.bar{position:sticky;bottom:calc(8px + env(safe-area-inset-bottom,0px));display:flex;gap:8px;align-items:center;justify-content:space-between;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin-top:12px}
+.bar[hidden]{display:none}
+</style>
+</head>
+<body>
+<main>
+  <h1>Bestellungen</h1>
+  <p class="sub" id="sub"></p>
+  <div id="adminBox" hidden>
+    <form class="card add" id="form">
+      <input id="kunde" class="full" placeholder="Kunde / Name" required>
+      <input id="artikel" placeholder="Artikel" required>
+      <input id="menge" type="number" min="1" value="1" placeholder="Menge">
+      <textarea id="notiz" class="full" rows="2" placeholder="Notiz (optional)"></textarea>
+      <button class="full" type="submit">Bestellung hinzufügen</button>
+    </form>
+  </div>
+  <div class="card" id="exportBox" hidden>
+    <p class="meta">Änderung gemerkt. Kopiere diese Daten und ersetze damit in der Datei den Inhalt von <code>&lt;script id="data"&gt;</code>, dann neu hochladen.</p>
+    <textarea id="export" rows="6" readonly></textarea>
+  </div>
+  <div id="list"></div>
+  <div class="bar" id="bar" hidden>
+    <span id="count"></span>
+    <button id="copy" type="button">Auswahl kopieren</button>
+  </div>
+</main>
+<script id="data" type="application/json">[]</script>
+<script>
+(function(){
+  var SRC="<!DOCTYPE html>\n"+document.documentElement.outerHTML;
+  var orders=[];
+  try{orders=JSON.parse(document.getElementById("data").textContent)||[]}catch(e){}
+  var selected={},isOwner=false,artifact=null;
+  var listEl=document.getElementById("list"),subEl=document.getElementById("sub");
+  var barEl=document.getElementById("bar"),countEl=document.getElementById("count");
+
+  function el(tag,cls,txt){var e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
+
+  function render(){
+    var open=orders.filter(function(o){return o.status!=="erledigt"}).length;
+    subEl.textContent=orders.length+" insgesamt, "+open+" offen"+(isOwner?"":" · Auswahl antippen, um eine Nachricht vorzubereiten");
+    listEl.textContent="";
+    if(!orders.length){listEl.appendChild(el("div","empty","Noch keine Bestellungen."))}
+    orders.forEach(function(o){
+      var c=el("div","card"),row=el("div","row");
+      if(!isOwner){
+        var cb=document.createElement("input");cb.type="checkbox";cb.checked=!!selected[o.id];
+        cb.onchange=function(){if(cb.checked)selected[o.id]=1;else delete selected[o.id];updateBar()};
+        row.appendChild(cb);
+      }
+      var g=el("div","grow");
+      g.appendChild(el("div","title",o.artikel+" × "+o.menge));
+      g.appendChild(el("div","meta",o.kunde+(o.notiz?" · "+o.notiz:"")));
+      row.appendChild(g);
+      var done=o.status==="erledigt";
+      row.appendChild(el("span","badge "+(done?"erledigt":"offen"),done?"Erledigt":"Offen"));
+      c.appendChild(row);
+      if(isOwner){
+        var a=el("div","actions");
+        var t=el("button","ghost",done?"Wieder öffnen":"Als erledigt markieren");
+        t.onclick=function(){o.status=done?"offen":"erledigt";save()};
+        var d=el("button","ghost","Löschen");
+        d.onclick=function(){if(confirm("Bestellung löschen?")){orders=orders.filter(function(x){return x.id!==o.id});save()}};
+        a.appendChild(t);a.appendChild(d);c.appendChild(a);
+      }
+      listEl.appendChild(c);
+    });
+    updateBar();
+  }
+
+  function updateBar(){
+    var n=Object.keys(selected).length;
+    barEl.hidden=isOwner||n===0;
+    countEl.textContent=n+" ausgewählt";
+  }
+
+  document.getElementById("copy").onclick=function(){
+    var lines=orders.filter(function(o){return selected[o.id]}).map(function(o){return "- "+o.artikel+" × "+o.menge+" ("+o.kunde+")"});
+    var text="Hallo, ich habe diese Bestellungen ausgewählt:\n"+lines.join("\n");
+    var btn=document.getElementById("copy");
+    function ok(){btn.textContent="Kopiert ✓";setTimeout(function(){btn.textContent="Auswahl kopieren"},1800)}
+    function fallback(){var t=document.createElement("textarea");t.value=text;document.body.appendChild(t);t.select();try{document.execCommand("copy");ok()}catch(e){alert(text)}document.body.removeChild(t)}
+    if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(ok,fallback)}else fallback();
+  };
+
+  function save(){
+    render();
+    var out=document.getElementById("export");
+    out.value=JSON.stringify(orders,null,1);
+    document.getElementById("exportBox").hidden=false;
+  }
+
+  document.getElementById("form").addEventListener("submit",function(ev){
+    ev.preventDefault();
+    var k=document.getElementById("kunde"),a=document.getElementById("artikel"),m=document.getElementById("menge"),n=document.getElementById("notiz");
+    orders.unshift({id:"o"+Date.now().toString(36),kunde:k.value.trim(),artikel:a.value.trim(),menge:parseInt(m.value,10)||1,notiz:n.value.trim(),status:"offen"});
+    save();
+  });
+
+  render();
+
+  isOwner=location.hash==="#admin";
+  document.getElementById("adminBox").hidden=!isOwner;
+  render();
+})();
+</script>
+</body>
+</html>
